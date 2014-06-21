@@ -5,7 +5,7 @@ date: Friday, June 20, 2014
 output: html_document
 ---
 
-Is the association of rocks and burials at MKII non-random? A test using resampling methods and geometric morphometry
+Is the association of rocks and burials at MJB non-random? A test using resampling methods and geometric morphometry
 ========================================================
 Ben Marwick
 
@@ -288,8 +288,8 @@ The plots suggest that the rocks that overlap the skeletons have a greater range
 # test for normality 
 
 sw <- ddply(areas, "type", summarize, 
-                pval = shapiro.test(area)$p.value, 
-                stat = shapiro.test(area)$statistic)
+                p.value = round(shapiro.test(area)$p.value, 3), 
+                statistic = round(shapiro.test(area)$statistic, 3))
 # One-Way Permutation Test based on 10000 Monte-Carlo 
 # resamplings. y is numeric and A is a categorical factor 
 
@@ -309,26 +309,22 @@ BESTsum <- summary(BESTout, credMass=0.95,
 ```{r, echo=FALSE, comment="",  results='asis', message=FALSE  }
 
 # Shapiro-Wilk test for normality
-set.caption('Shapiro-Wilk test for normality') 
-pandoc.table(sw, style="rmarkdown")
+# set.caption('Shapiro-Wilk test for normality') 
+# pandoc.table(sw, style="rmarkdown") # for making PDF
+knitr::kable(sw) # for making html
 ```
 
-```
-```
 
-
-```{r, echo=FALSE, eval=FALSE } 
-# ??????????????????????????????
-
-windows()
-BEST_plot <- plotAll(BESTout, credMass=0.95, ROPEm=c(-0.1,0.1),
+```{r, echo=FALSE, eval=TRUE, message = FALSE, results='hide' } 
+# kludge to include this figure...
+png(filename = "code/Rocks-and-burials-at-MJB_files/figure-html/BEST1.png", restoreConsole = TRUE)
+par(mfrow=c(1,1))
+plotAll(BESTout, credMass=0.95, ROPEm=c(-0.1,0.1),
  ROPEeff=c(-0.2,0.2), compValm=0.5, oneGrp=TRUE)
- win.metafile(filename = "BEST_out.wmf", restoreConsole = TRUE)
- dev.off()
-# link to download of image b/c this one doesn't work
-# 800 x 1200 
+dev.off()
 ```
- 
+
+![BEST1](Rocks-and-burials-at-MJB_files/figure-html/BEST1.png) 
 
 In the Bayesian estimation plot of difference of means we see zero within the 95% highest density interval of the posterior distribution. This indicates that a difference of means of zero is a credible value for these two samples. This is roughly equivalent to saying that there's no signficant difference between the sizes of rocks in the two groups. 
 
@@ -411,7 +407,7 @@ title(main = "red: skulls\ngreen: rocks not over skulls \nblue: rocks over skull
 ```
 
 
-Visualise differences in areas of rocks over skulls and rocks not over skulls
+Visualise differences in areas of rocks over skulls and rocks not over skulls.
 
 ```{r, echo=FALSE, tidy=FALSE, fig.cap="Plot of difference in area of rocks that overlap skulls and rocks that do not overlap",  fig.height=4}
 sk_ovr_areas <- data.frame(area = sapply(slot(sk_ovr, "polygons"), 
@@ -446,7 +442,7 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 
-Investigate difference in means with statistics
+Investigate difference in means using the Bayesian t-test and other methods.
 
 ```{r, echo=FALSE, tidy=FALSE, cache=TRUE, message=FALSE, results='hide'}
 # since the previous test found non-normal distributions, 
@@ -457,6 +453,8 @@ Investigate difference in means with statistics
 
 prm_sk <- oneway_test(area ~ factor(type), data=sk_areas,
   distribution=approximate(B=10000))
+prm_sk
+
 # Bayesian estimation alternative to the t-test
 
 BESTout_sk <- BESTmcmc(sk_areas[sk_areas$type == 'sk_ovr_areas', 1], 
@@ -467,21 +465,22 @@ BESTsum_sk <- summary(BESTout_sk, credMass=0.95,
                    ROPEeff=c(-0.2,0.2))
 ```
 
+The permutations test returns a p-value of `r round(pvalue(prm_sk)[1],3)`. The Bayesian test output shows that zero is in the HDI, so there is no credible difference between the areas of rocks over skulls and rocks not over skulls.
 
-
-```{r, echo=FALSE, eval=FALSE }
-# just for the BEST plot ???????????????? how to capture it as a file?
-
-windows()
+```{r, echo=FALSE, eval=TRUE, message = FALSE, results='hide' } 
+# kludge to include this figure...
+png(filename = "code/Rocks-and-burials-at-MJB_files/figure-html/BEST2.png", restoreConsole = TRUE)
+par(mfrow=c(1,1))
 plotAll(BESTout_sk, credMass=0.95, ROPEm=c(-0.1,0.1),
  ROPEeff=c(-0.2,0.2), compValm=0.5, oneGrp=TRUE)
-# link to download of image b/c this one doesn't work
-# 800 x 1200 
+dev.off()
 ```
 
-There is no credible difference in the sizes of rocks on skulls compared to rocks not on skulls.
+![BEST2](Rocks-and-burials-at-MJB_files/figure-html/BEST2.png) 
 
-Shapes of rocks on skulls compared to rocks not on skulls.
+
+
+Now we compare the shapes of rocks on skulls to the shapes of the rocks not on skulls.
 
 ```{r, tidy=FALSE, echo=FALSE, comment=""}
 # divide the rocks into two categories as before
@@ -502,14 +501,14 @@ panel(rock_outlines,  borders="black", names=TRUE, cols="grey90")
 #r_o_center <- Coo(lapply(rock_outlines@coo, coo.center))
 sk_r_o_center <-  rock_outlines
 # how many harmonics? Cumulative harmonic power analysis
-hpw <- hpow(sk_r_o_center,
+hpw <- hpow(sk_r_o_center, method = "efourier",
 title="eFourier with \nextrema and mean dev.")
 # set number of harmonics
 hm <- 11
 # Calculates elliptical Fourier analysis
 sk_r_o_center_F <- eFourier(sk_r_o_center, nb.h=hm)
 # multivariate analysis of variance on the matrix of harmonic coefficients. 
-(sk_mnv <- manova.Coe(sk_r_o_center_F, "fac"))
+(sk_mnv <- manova.Coe(sk_r_o_center_F, "fac", retain = hm))
 
 ```
 

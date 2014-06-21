@@ -2,6 +2,7 @@ base
 BEST
 coda
 coin
+dependencies
 ggplot2
 gridExtra
 lattice
