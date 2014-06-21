@@ -16,7 +16,7 @@ Lowe, Kelsey M., Lynley A. Wallis, Colin Pardoe, Ben Marwick5, Chris Clarkson, T
 
 One rmarkdown file (Rocks-and-burials-at-MJB.Rmd) that can be executed in R. This file contains the narrative found in the published paper and R code used to analyse the data and generate the figures. To execute this file, ensure all the files are together in a directory in the same structure as they are in this repository, then open R and run `knitr::knit2html("Rocks-and-burials-at-MJB.Rmd")`. There are many dependencies on non-core R packages and other software (see the dependencies list below), so you'll need to download and install all of those before attempting to run the rmarkdown file.  
 
-Two r files containing code that the rmarkdown file uses to analyse the data. 
+Two r files containing code that the rmarkdown file uses to load libraries and load data. 
 
 One html file (Rocks-and-burials-at-MJB.html). This is the output produced when the Rmd file is executed. It includes the text and figures. 
 
