@@ -1,0 +1,554 @@
+---
+title: ""
+author: Ben Marwick
+date: Friday, June 20, 2014
+output: html_document
+---
+
+Is the association of rocks and burials at MKII non-random? A test using resampling methods and geometric morphometry
+========================================================
+Ben Marwick
+
+In this report I sketch out a quantitative answer to the question: Is the association of rocks and human skeletons in the Holocene deposits of Madjebebe random or deliberate? I use data from our 2012 excavation to answer this question.
+
+I've taken two approaches. The first investigates overlap of rocks and skeletons. The second looks at the shape and size of the rocks. An important issue that I've not addressed here is the possibility that the distribution of rocks in the archaeological deposit is strongly influenced by patterns of rock fracture in the sandstone escarpment. In the rock directly above the excavation area there may be different degrees of susceptibility to weathering that lead to distinctive fracture patterns. This may result in a pattern of rockfall in the archaeological deposit that corresponds to the fracture patterns in the rockshelter wall. However, without detailed data on the rockshelter wall the extent that we can investigate this possiblity is limited. 
+
+```{r, message=FALSE, echo=FALSE}
+# This is necessary to direct knitr to find the 
+# 'code', 'data', and other directories that contain
+# files needed to execute this document
+knitr::opts_knit$set(root.dir=normalizePath('../'))
+```
+
+
+Overlap of rocks and skeletons
+-------------------------------------------------------
+
+The general method of the first approach is to determine the observed area of overlap of rocks and skeletons and then compare the probability of observing that area to a distribution of areas derived from randomly relocating the rocks over the excavation area. 
+
+Here's an outline of the method:
+
+1. Get spatial data on skeleton locations and rock locations from our total station files
+2. Generate a large number of new random arrangements of the rocks within the excavation area
+3. Calculate the area of overlap between rocks and skeletons for each random rearrangement of rocks
+4. Calculate the proportion of areas from random arrangements that are equal to or greater than our observed area. That proportion becomes our p-value for evaluating the randomness of the observed distribution.
+
+I'm including all the details of the calculations here in case anyone wants to reproduce, modify or extend the analysis. See the readme file for details of how to reproduce this document.
+
+ 
+```{r, message=FALSE, echo=FALSE}
+# Here are the packages that contain the functions we need
+source("code/libraries.r")
+
+# Load the shapefile data into R.
+# I've used SR and SF points to define the skeleton areas here.
+# Load shapefiles into R. Assumes you have a folder called 'data' that
+# contains the shapefiles.
+source("code/load.r") 
+````
+
+First, we'll check to see that these data are what we're expecting with some basic plots. Skeleton areas are in red, rocks in green. Note that the outline of the excavated area is approximate as a visual aid only. To create random locations for the rocks, we first generate a large number of random points in our excavation area. We'll make a thousand points and use these points as destinations to shift the rocks to.
+
+```{r, echo=FALSE, fig.cap="Plot of excavated area, rocks and skeletons (left), Plot of random points in excavation area (right)", fig.height=4}
+par(mfrow=c(1,2))
+plot(excv)
+title(main = "Map of rocks (green) and \nhuman skeletons (red) \nat MJB")
+plot(rocks, add = TRUE, border = "green")
+plot(skeles, add = TRUE, border = "red")
+rnd <- spsample(excv, 1000, type = "random")
+# validate location of random points by inspecting a plot
+plot(rnd, pch = ".")
+title(main = "Map of random \npoints at MJB")
+```
+
+Now we'll write a function that will take each rock in our rock shapefile and shift it to a randomly chosen point from our 1000 random points. That will result in a shapefile that contains a completely random shuffle of the rocks within the excavation area. We'll nest that function in another function that repeats that process of making a random-shuffle shapefile `r  n <- 1000; n` times. We'll end up with `r n` shapefiles of randomly rearranged rocks. This took a couple of minutes to run on my computer.
+
+```{r,cache=TRUE, echo=FALSE}
+# Loops to generate n shapefiles with randomly located rocks
+# n is the number of shapefiles to make 
+# (assigned in inline code in the para above)
+# create a storage list for output of loop
+rocks_list <- vector("list", length = n)
+for(j in 1:n) { # first loop
+# create a storage list for output of loop
+rocks_rnd <- vector("list", length = length(rocks))
+# randomly relocate every rock in the shapefile
+for(i in 1:length(rocks)) { # second loop
+# this is where we move each rock, one by one
+# get a rock from our observed rocks to shift
+ri <- rocks[i,]
+# we have to shift all of the coords relating to this rock...
+# get coords of vertices (outline of rock)
+cds <- slot(slot(slot(ri, "polygons")[[1]], "Polygons")[[1]], "coords")
+# get coords of labpt, labpt, bbox also (centrepoints and bounding box)
+l1 <- slot(slot(slot(ri, "polygons")[[1]], "Polygons")[[1]], "labpt")
+l2 <- slot(slot(ri,  "polygons")[[1]], "labpt")
+b1 <- slot(ri,  "bbox")
+# get a random point in the excavation area to shift to
+rn <- unname(rnd@coords[sample(1:length(rnd),1),])
+# shift all the vertices coords
+ofst <- cds[1,] - rn
+newcds <- t(apply(cds, 1, function(x) x - ofst))
+# shift lapt1 (centrepoint)
+ofst <- l1 - rn
+newl1 <- l1 - ofst
+# shift lapt2 (centrepoint)
+ofst <- l2 - rn
+newl2 <- l2 - ofst
+# shift bbox (bounding box)
+ofst <- t(apply(b1, 2,  function(x) x-rn))
+newb1 <- b1 - ofst
+# put these shifted points back into the polygon object
+slot(slot(slot(ri, "polygons")[[1]], "Polygons")[[1]], "coords") <- newcds
+slot(slot(slot(ri, "polygons")[[1]], "Polygons")[[1]], "labpt") <- newl1
+slot(slot(ri,  "polygons")[[1]], "labpt") <- newl2
+slot(ri, "bbox") <- newb1
+# assign this rock to the list of rocks in the shapefile
+rocks_rnd[[i]] <- ri 
+} # end rearrangemet of all the rocks in one shapefile
+# this is where we collect each of the n shapefiles and 
+# put them in a list
+# make list of SpatialPolygons
+rocks_list[[j]] <- do.call(rbind, rocks_rnd)
+}
+```
+
+We should validate the output of these functions before we go on. Let's plot a section of random shapefiles and it it's what we expect. Compared to the plot above and we see that the rocks are indeed in random new locations. So it's working as intended. We might spot one or two rocks slightly outside of the excavation area, which is undesirable, but I don't think they're going to have any effect on our results. Notice that we have a lot of overlap within the skeleton shapefile, this is going to cause problems with are analysis of polygon intersection area, so let's dissolve the overlapping polygons into one.
+
+```{r, , echo=FALSE,  fig.cap="Plot to validate if random shuffling occured (left), Plot of dissolved polygons of skeletons (right) ", fig.height=4}
+par(mfrow=c(1,2))
+plot(excv)
+plot(rocks_list[[sample(n,1)]], add = TRUE, border = "green")
+plot(skeles, add = TRUE, border = "red")
+title(main = "Test of random \nrearrangement of \nrocks")
+# Dissolve skeleton outlines
+skeles <- unionSpatialPolygons(skeles, ID=rep(1, 
+ times=length(skeles@polygons)))  
+# validate with a plot
+plot(skeles, border = "red")
+title(main = "Verify of dissolution \nof skeleton \noutlines")
+````
+
+Now we can write a function that will calculate the area of intersection (or overlap) between rock polygons and skeleton polygons for each of our `r n` random-shuffle shapefiles.
+
+````{r, echo=FALSE, cache=TRUE, tidy=FALSE}
+# make a list to store the output of the function 
+int_area <- vector("list", length(length(rocks_list)))
+for(i in 1:length(rocks_list)) {
+# get polygons that are just the intersection of rocks and skeles
+x <- joinPolys( 
+       combinePolys(SpatialPolygons2PolySet(skeles)), 
+       combinePolys(SpatialPolygons2PolySet(rocks_list[[i]])), 
+        "INT" )
+x <- suppressWarnings(PolySet2SpatialPolygons(x))
+# extract area of intersecting polygons
+areas <- sapply(slot(x, "polygons"), 
+         function(x) sapply(slot(x, "Polygons"), slot, "area"))
+# store output in list 
+int_area[[i]] <- sum(areas)
+}
+````
+
+We can now visualise the distribution of areas of overlap that result from our random shuffles. Remember that the shape of this curve is based on a random distribution, so it will look a bit different each time the code is run.
+
+````{r, echo=FALSE, warning = FALSE, message=FALSE, tidy=FALSE,  fig.cap="Distribution of areas of overlap from random rock locations", fig.height=4}
+random_areas <- data.frame(area = unlist(int_area))
+
+area_of_intersection <- ggplot(random_areas, aes(x=area)) + 
+  geom_histogram() +
+  xlab(expression("Area of intersection of rocks and skeletons (m"^2*")")) + 
+  ylab("Frequency") +
+  theme_minimal(base_size=14)
+area_of_intersection
+````
+
+Now we need to calculate our observed amount of overlap of actual rocks on the skeletons so we can see how this compares to the distribution of random areas.
+
+````{r, , echo=FALSE, tidy=FALSE}
+x <- joinPolys( combinePolys(SpatialPolygons2PolySet(rocks)),
+                combinePolys(SpatialPolygons2PolySet(skeles)), 
+                "INT" )
+x <- suppressWarnings(PolySet2SpatialPolygons(x))
+# calculate area of intersecting polygons
+areas <- sapply(slot(x, "polygons"), 
+         function(x) sapply(slot(x, "Polygons"), slot, "area"))
+obs_area <- sum(areas)
+````
+
+Validate by a quick plot to see if that's done what we expected. We've got skeletons in red, rocks in green, and the overlapping areas of rocks and skeletons in blue. Looks like it's doing what we expect.
+
+````{r, echo=FALSE,  fig.cap="Plot of observed overlap of rocks on skeletons", fig.height=4}
+plot(excv)
+plot(rocks, add = TRUE, border = "green")
+plot(skeles, add = TRUE, border = "red")
+plot(x, add = TRUE, border = "blue")
+title(main = "Validation of overlap calculations:\nblue shapes are where rocks \noverlap skeletons")
+````
+
+So, the area that we've calculated as observed area of overlap is `r obs_area` m^2 and we have a distribution of random areas. The average area of overlap amongst the random arrangements is `r round(mean(unlist(int_area)),2)` with a standard deviation of `r round(sd(unlist(int_area)),2)`  Now we're ready to calculate the probability that the observed value is due to a random arrangement of rocks. Here we go:
+
+````{r, echo=FALSE}
+pval <- 1 - sum(unlist(int_area) <= obs_area) / n
+````
+
+And we get `r pval` which is less than 0.05, a common threshold for declaring statistical signifance. We can mark our observed area on the histogram of resampled areas to visualize the extremeness of our observed result.
+
+```{r, echo=FALSE, warning = FALSE, message=FALSE, tidy=FALSE,  fig.cap="Plot of distributions of areas from random rock locations and our observed value", fig.height=4}
+area_of_intersection + 
+  geom_vline(xintercept = obs_area, col = "red") + 
+  annotate("text", x = obs_area * 1.2, y = 65, 
+           label = paste0("Observed \nvalue = \n",
+                         round(obs_area,2), 
+                         " \n(p = ", round(pval,3), ")"), col = "red")
+```
+
+Only `r pval*100`% of our randomly-shuffled rock shapefiles result in an overlap with the skeletons that is equal to or greater than our observed overlap area. This indicates that our observed area is probably not random but a result of deliberate placement of the rocks over or near the skeletons. The answer to the question that motivated this analysis is 'yes, the association is non-random'.
+
+Shape and size of the rocks
+--------------------------------------------------------
+
+My second approach is an investigation of the size and shape of the rocks. We can take a quick look at the individual rocks and see if there's any patterning that might suggest deliberate selection of certain kinds of rocks. We can look at the distribution of rock sizes and shapes from the total station data. Here's the general method:
+
+1. Investigate the distribution of rock sizes to see if there's multimodality indicating selection of two or more different sizes of rock
+
+2. Investigate patterns in the shape of the rocks to see if rocks associated with the skeletons have a distinctive shape. 
+
+First, let's consider rock area. The historgram of areas looks unimodal, so we don't appear to be seeing selection focused on more than one modal size of rock (note the log axis for area, since there are a lot of small rocks)
+
+```{r, echo=FALSE, warning = FALSE, message=FALSE, tidy=FALSE,  fig.height=3, fig.cap="Plot of areas of observed rocks"}
+# calculate area of all the rocks
+rock_areas <- data.frame(area = sapply(slot(rocks, "polygons"), 
+               function(x) sapply(slot(x, "Polygons"), slot, "area")))
+# plot
+
+plot1 <- ggplot(rock_areas, aes((area))) +
+  geom_histogram() +
+  xlab(expression("Area of rock (m"^2*")")) + 
+  ylab("Frequency") +
+  theme_minimal(base_size=14)
+plot2 <- ggplot(rock_areas, aes(log(area))) +
+  geom_histogram() +
+  xlab("log of area of rock") + 
+  ylab("Frequency") +
+  theme_minimal(base_size=14)
+grid.arrange(plot1, plot2, ncol=2)
+```
+
+We can test to see if rocks on or overlapping the skeletons have different areas to rocks away from the skeletons. We'll split the rocks into two groups based on their overlap with the skeletons.
+
+````{r, echo=FALSE , fig.cap="Plot of rocks overlapping with skeletons (blue) and rocks not overlapping (green)", fig.height=4}
+# set up plot
+plot(excv)
+plot(skeles, add = TRUE, border = "red")
+# divide rocks into those intersecting skeletons
+# and those not intersecting
+ovr <- rocks[skeles,] 
+novr <- rocks[is.na(over(rocks,skeles)),]
+plot(ovr, border= "blue", add = T)
+plot(novr, border= "green", add = T)
+title(main = "Green: rocks not overlapping skeletons, \nblue: rocks overlapping skeletons")
+```
+
+Now we can see what the difference in areas is between overlapping rocks and non-overlapping rocks.
+
+````{r, echo=FALSE, tidy=FALSE, fig.cap="Plot of difference in area of rocks that overlap skeletons and rocks that do not overlap",  fig.height=4}
+ovr_areas <- data.frame(area = sapply(slot(ovr, "polygons"), 
+               function(x) sapply(slot(x, "Polygons"), slot, "area")))
+novr_areas <- data.frame(area = sapply(slot(novr, "polygons"), 
+               function(x) sapply(slot(x, "Polygons"), slot, "area")))
+# combine two datasets for plotting and significance testing
+
+l <- list(data.frame(a=ovr_areas), data.frame(b=novr_areas))
+areas <- do.call(rbind.fill, l)
+areas$type <- c(rep("ovr_areas", dim(ovr_areas)[1]),
+                rep("novr_areas", dim(novr_areas)[1])) 
+# plot
+# function for number of observations 
+give.n  <- function(x){
+  return(data.frame(y = median(x)*0.9, label = paste0("n = ",length(x))))
+}
+p1 <- ggplot(areas, aes(type, (area))) +
+  geom_violin() +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, size = 3) +
+  xlab("rock category") +
+  ylab("rock area") +
+  theme_minimal(base_size=14)
+ p2 <- ggplot(areas, aes(type, log(area))) +
+  geom_violin() +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, size = 3) +
+  xlab("rock category") +
+  ylab("log of rock area") +
+  theme_minimal(base_size=14)
+grid.arrange(p1, p2, ncol=2)
+```
+
+The plots suggest that the rocks that overlap the skeletons have a greater range of areas and appear to have a higher central tendancy. We can validate this observation with a statistical test. The obvious choice is a t-test to test for a significant difference between the means of the two samples. However, our data are highly skewed, and the main assumption of the t-test is that the data derive from a normally distributed population. We can confirm the non-normality of our data with the Shapiro-Wilk Normality Test. There are at least two other options to evaluate these data for signficant difference: resampling methods and Bayesian estimation.
+
+```{r, echo=FALSE,tidy=FALSE, cache=TRUE, message=FALSE, results='hide'}
+# test for normality 
+
+sw <- ddply(areas, "type", summarize, 
+                pval = shapiro.test(area)$p.value, 
+                stat = shapiro.test(area)$statistic)
+# One-Way Permutation Test based on 10000 Monte-Carlo 
+# resamplings. y is numeric and A is a categorical factor 
+
+prm <- oneway_test(area ~ factor(type), data=areas,
+  distribution=approximate(B=10000))
+# Bayesian estimation alternative to the t-test
+
+BESTout <- BESTmcmc(areas[areas$type == 'ovr_areas', 1], 
+                    areas[areas$type == 'novr_areas', 1], 
+                    verbose=TRUE)
+BESTsum <- summary(BESTout, credMass=0.95, 
+                   ROPEm=c(-0.1,0.1), ROPEsd=c(-0.15,0.15),
+                   ROPEeff=c(-0.2,0.2))
+```
+
+
+```{r, echo=FALSE, comment="",  results='asis', message=FALSE  }
+
+# Shapiro-Wilk test for normality
+set.caption('Shapiro-Wilk test for normality') 
+pandoc.table(sw, style="rmarkdown")
+```
+
+```
+```
+
+
+```{r, echo=FALSE, eval=FALSE } 
+# ??????????????????????????????
+
+windows()
+BEST_plot <- plotAll(BESTout, credMass=0.95, ROPEm=c(-0.1,0.1),
+ ROPEeff=c(-0.2,0.2), compValm=0.5, oneGrp=TRUE)
+ win.metafile(filename = "BEST_out.wmf", restoreConsole = TRUE)
+ dev.off()
+# link to download of image b/c this one doesn't work
+# 800 x 1200 
+```
+ 
+
+In the Bayesian estimation plot of difference of means we see zero within the 95% highest density interval of the posterior distribution. This indicates that a difference of means of zero is a credible value for these two samples. This is roughly equivalent to saying that there's no signficant difference between the sizes of rocks in the two groups. 
+
+My second investation of the rocks is of their shapes using two-dimensional geometric morphometry. Since we do not have homologous points on the rocks, we cannot use a landmark method. Instead we can work with the outlines of the rocks provided by our total station points to explore variation in shape. A major limitation here is that we have relatively few points to define the rock outlines. We have between five and thirteen points per rock, much fewer than is typical for outline analysis, so we might have got a different result had we measured more points for the rock outlines. We will use elliptical Fourier analysis to decompose the shapes into functions that we can compare. Before we can make any comparisons, we need to interpolate a larger number of points on the outlines and then determine the optimum number of harmonics to use in our calculations. We'll do a harmonic power analysis to identify the number of harmonics that contains 99% of the total harmonic power.
+
+```{r, message=FALSE, results='hide', fig.cap="Outlines of all rocks near and on the skeletons (left). Cumulative harmonic power analysis (right)", fig.height=4, tidy=FALSE, echo=FALSE}
+rock_outlines <- simplify2array(lapply(slot(rocks, "polygons"), 
+        function(x) lapply(slot(x, "Polygons"), slot, "coords")))
+
+# our outlines are to sparse for geom morph, so let's 
+# a bunch of points
+rock_outlines <- Coo(lapply(rock_outlines, function(i)
+                    coo.sample.int(i, 100) ))
+# divide the rocks into two categories as before
+oID <- as.numeric(sapply(slot(ovr, "polygons"), 
+                function(x) (slot(x, "ID"))))
+nID <-  as.numeric(sapply(slot(novr, "polygons"), 
+                function(x) (slot(x, "ID"))))
+names(nID) <- rep('not', length(nID))
+names(oID) <- rep('ovr', length(oID))
+idx <- data.frame(cat = names(c(nID, oID)), val = unname(c(nID, oID)))
+idx1 <- idx[with(idx, order(val)), ]
+idx2 <- data.frame(fac = idx1[,1])
+slot(rock_outlines, 'fac') <- idx2
+# plot 
+par(mfrow=c(1,2))
+panel(rock_outlines,  borders="black", names=TRUE, cols="grey90")
+title(main = "All rock outlines")
+# center all the outlines
+#r_o_center <- Coo(lapply(rock_outlines@coo, coo.center))
+r_o_center <-  rock_outlines
+# how many harmonics? Cumulative harmonic power analysis
+hpw <- hpow(r_o_center,
+title="eFourier with \nextrema and mean dev.")
+# set number of harmonics
+hm <- 11
+```
+
+The number where the cumulative harmonic power seems to flatten out close to 1 is aobut eleven. We can use this to explore variation in space with principal component analysis. In the following PCA plots we can see that there is no clear separation in the shapes of overlapping and non-overlapping rocks
+
+```{r, echo=FALSE, fig.cap="Distributions of harmonic coefficients (elliptical, radii, tangent)", fig.height=6, tidy=FALSE}
+# Calculates elliptical Fourier analysis
+r_o_center_F <- eFourier(r_o_center, nb.h=hm)
+# Calculates radii variation analysis
+r_o_center_R <- rFourier(r_o_center, nb.h=hm)
+# Calculates tangent angle analysis
+r_o_center_T <- tFourier(r_o_center, nb.h=hm)
+# plots
+par(mfrow=c(2,2))
+r_o_center_D <- pca(r_o_center_F)
+dudi.plot(r_o_center_D, 1, title="rocks with no class but with ellipses")
+dudi.plot(r_o_center_D, "fac", chull=TRUE, rug=FALSE, shape=TRUE,
+title="rocks with convex hull")
+dudi.plot(r_o_center_D, labels=TRUE, points=FALSE, boxes=FALSE,
+shapes=TRUE, pos.shp="li",
+title="rocks with labels and reconstructed shapes")
+dudi.plot(r_o_center_D, "fac", arrows=TRUE, dratio.arrow=0.2, shapes=TRUE,
+title="rocks with harmonic correlations")
+```
+We can validate this observation of no clear separation with a multivariate analysis of variance on the matrix of harmonic coefficients. 
+
+```{r, comment=""}
+(mnv <- manova.Coe(r_o_center_F, "fac", retain = hm))
+```
+
+
+With a p-value of `r round(mnv$stats[1, "Pr(>F)"],3)` from the MANOVA, we cannot reject the null hypothesis of no significant difference between shapes of rocks overlapping skeletons and rocks not overlapping skeletons.
+
+Finally, we can consider just the rocks over only the skulls and see if they have any differences in size and shape from other rocks.
+
+```{r, echo=FALSE, fig.cap="Rocks and skulls (red), with rocks overlapping skulls in blue and rocks not overlapping in green",  fig.height=4}
+
+# identify rocks that overlap with skulls
+sk_ovr <- rocks1[skulls,] 
+sk_novr <- rocks1[is.na(over(rocks1,skulls)),]
+plot(skulls, border= "red")
+plot(sk_ovr, border= "blue", add = T)
+plot(sk_novr, border= "green", add = T)
+title(main = "red: skulls\ngreen: rocks not over skulls \nblue: rocks over skulls")
+```
+
+
+Visualise differences in areas of rocks over skulls and rocks not over skulls
+
+```{r, echo=FALSE, tidy=FALSE, fig.cap="Plot of difference in area of rocks that overlap skulls and rocks that do not overlap",  fig.height=4}
+sk_ovr_areas <- data.frame(area = sapply(slot(sk_ovr, "polygons"), 
+               function(x) sapply(slot(x, "Polygons"), slot, "area")))
+sk_novr_areas <- data.frame(area = sapply(slot(sk_novr, "polygons"), 
+               function(x) sapply(slot(x, "Polygons"), slot, "area")))
+# combine two datasets for plotting and significance testing
+
+l <- list(data.frame(a=sk_ovr_areas), data.frame(b=sk_novr_areas))
+sk_areas <- do.call(rbind.fill, l)
+sk_areas$type <- c(rep("sk_ovr_areas", dim(sk_ovr_areas)[1]),
+                   rep("sk_novr_areas", dim(sk_novr_areas)[1])) 
+# plot
+# function for number of observations 
+give.n  <- function(x){
+  return(data.frame(y = median(x)*0.9, label = paste0("n = ",length(x))))
+}
+
+p1 <- ggplot(sk_areas, aes(type, (area))) +
+  geom_violin() +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, size = 3) +
+  xlab("rock category") +
+  ylab("rock area") +
+  theme_minimal(base_size=14)
+ p2 <- ggplot(sk_areas, aes(type, log(area))) +
+  geom_violin() +
+  stat_summary(fun.data = give.n, geom = "text", fun.y = median, size = 3) +
+  xlab("rock category") +
+  ylab("log of rock area") +
+  theme_minimal(base_size=14)
+grid.arrange(p1, p2, ncol=2) 
+```
+
+
+Investigate difference in means with statistics
+
+```{r, echo=FALSE, tidy=FALSE, cache=TRUE, message=FALSE, results='hide'}
+# since the previous test found non-normal distributions, 
+# we'll just skip to the appropriate tests...
+# One-Way Permutation Test based on 10000 Monte-Carlo 
+# resamplings: oneway_test(y ~ A) where y is numeric 
+# and A is a categorical factor 
+
+prm_sk <- oneway_test(area ~ factor(type), data=sk_areas,
+  distribution=approximate(B=10000))
+# Bayesian estimation alternative to the t-test
+
+BESTout_sk <- BESTmcmc(sk_areas[sk_areas$type == 'sk_ovr_areas', 1], 
+                    sk_areas[sk_areas$type == 'sk_novr_areas', 1], 
+                    verbose=FALSE)
+BESTsum_sk <- summary(BESTout_sk, credMass=0.95, 
+                   ROPEm=c(-0.1,0.1), ROPEsd=c(-0.15,0.15),
+                   ROPEeff=c(-0.2,0.2))
+```
+
+
+
+```{r, echo=FALSE, eval=FALSE }
+# just for the BEST plot ???????????????? how to capture it as a file?
+
+windows()
+plotAll(BESTout_sk, credMass=0.95, ROPEm=c(-0.1,0.1),
+ ROPEeff=c(-0.2,0.2), compValm=0.5, oneGrp=TRUE)
+# link to download of image b/c this one doesn't work
+# 800 x 1200 
+```
+
+There is no credible difference in the sizes of rocks on skulls compared to rocks not on skulls.
+
+Shapes of rocks on skulls compared to rocks not on skulls.
+
+```{r, tidy=FALSE, echo=FALSE, comment=""}
+# divide the rocks into two categories as before
+sk_oID <- as.numeric(sapply(slot(sk_ovr, "polygons"), 
+                function(x) (slot(x, "ID"))))
+sk_nID <-  as.numeric(sapply(slot(sk_novr, "polygons"), 
+                function(x) (slot(x, "ID"))))
+names(sk_nID) <- rep('sk_not', length(sk_nID))
+names(sk_oID) <- rep('sk_ovr', length(sk_oID))
+idx <- data.frame(cat = names(c(sk_nID, sk_oID)), val = unname(c(sk_nID, sk_oID)))
+idx1 <- idx[with(idx, order(val)), ]
+idx2 <- data.frame(fac = idx1[,1])
+slot(rock_outlines, 'fac') <- idx2
+# plot 
+par(mfrow=c(1,2))
+panel(rock_outlines,  borders="black", names=TRUE, cols="grey90")
+# center all the outlines
+#r_o_center <- Coo(lapply(rock_outlines@coo, coo.center))
+sk_r_o_center <-  rock_outlines
+# how many harmonics? Cumulative harmonic power analysis
+hpw <- hpow(sk_r_o_center,
+title="eFourier with \nextrema and mean dev.")
+# set number of harmonics
+hm <- 11
+# Calculates elliptical Fourier analysis
+sk_r_o_center_F <- eFourier(sk_r_o_center, nb.h=hm)
+# multivariate analysis of variance on the matrix of harmonic coefficients. 
+(sk_mnv <- manova.Coe(sk_r_o_center_F, "fac"))
+
+```
+
+It appears that rocks on skulls have a significantly different shape compared to rocks not on skulls. Rocks on skulls tend to be more rounded and are never long and thin. 
+
+```{r, echo=FALSE, fig.cap = "Shape differences for rocks over skulls and rocks not over skulls", fig.height=6, tidy=FALSE}
+# plots
+par(mfrow=c(2,2))
+sk_r_o_center_D <- pca(sk_r_o_center_F)
+dudi.plot(sk_r_o_center_D, 1, title="rocks with no class but with ellipses")
+dudi.plot(sk_r_o_center_D, "fac", chull=TRUE, rug=FALSE, shape=TRUE,
+title="rocks with convex hull")
+dudi.plot(sk_r_o_center_D, labels=TRUE, points=FALSE, boxes=FALSE,
+shapes=TRUE, pos.shp="li",
+title="rocks with labels and reconstructed shapes")
+dudi.plot(sk_r_o_center_D, "fac", arrows=TRUE, dratio.arrow=0.2, shapes=TRUE,
+title="rocks with harmonic correlations")
+```
+
+Conclusions
+-------------------------------------------------------
+So we've found that:
+
+1. The observed area of overlap of rocks and skeletons is non-random. This suggests that stones may have been deliberately placed over the skeletons.
+
+2. There is no distinct or statistically significant difference in shape and size of rocks that overlap with skeletons and rocks that do not overlap with skeletons. This suggests that there is no evidence of selection of specfic kinds of rocks to place over the skeleton. People perhaps just collected local rocks from nearby to place on the skeletons. 
+
+3. Rocks placed over the skulls do not credibly differ in size from rocks that are not over skulls. but there is a difference in shape. The rocks placed over the skulls are typically more rounded and with smoother outlines, which the rocks not on skulls include longer and thinner rocks and rocks with sharper corners. We might say that the rocks over the skulls were chosen to match the shape of the skull they were covering. 
+
+
+---
+Ben Marwick, July 2014
+
+Here is a list of depedencies needed to exceute this document
+```{r}
+# which R packages and versions?
+sessionInfo()
+# what other pieces of software?
+needs <- needs()
+c(needs$depends$SystemRequirements[needs$depends$SystemRequirements != "NULL"], needs$imports$SystemRequirements[needs$imports$SystemRequirements != "NULL"])
+```
+
