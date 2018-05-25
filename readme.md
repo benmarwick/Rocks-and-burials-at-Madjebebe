@@ -10,7 +10,7 @@ Ben Marwick (benmarwick@gmail.com)
 
 ## Published in: 
 
-Lowe, Kelsey M., Lynley A. Wallis, Colin Pardoe, Ben Marwick5, Chris Clarkson, Tiina Manne, Mike A. Smith and Richard Fullagar 2014. Ground-penetrating radar and burial practices in western Arnhem Land, Australia. _Archaeology in Oceania_ 
+Lowe, Kelsey M., Lynley A. Wallis, Colin Pardoe, Ben Marwick5, Chris Clarkson, Tiina Manne, Mike A. Smith and Richard Fullagar 2014. Ground-penetrating radar and burial practices in western Arnhem Land, Australia. _Archaeology in Oceania_ <https://doi.org/10.1002/arco.5039>
 
 ## Contents:
 
